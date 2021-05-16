@@ -5,46 +5,39 @@ using System.Text;
 
 namespace AssetStudio
 {
-
-    class AssetBundle
+    public class AssetInfo
     {
-        public class AssetInfo
+        public int preloadIndex;
+        public int preloadSize;
+        public PPtr<Object> asset;
+
+        public AssetInfo(ObjectReader reader)
         {
-            public int preloadIndex;
-            public int preloadSize;
-            public PPtr asset;
+            preloadIndex = reader.ReadInt32();
+            preloadSize = reader.ReadInt32();
+            asset = new PPtr<Object>(reader);
         }
+    }
 
-        public class ContainerData
+    public sealed class AssetBundle : NamedObject
+    {
+        public PPtr<Object>[] m_PreloadTable;
+        public KeyValuePair<string, AssetInfo>[] m_Container;
+
+        public AssetBundle(ObjectReader reader) : base(reader)
         {
-            public string first;
-            public AssetInfo second;
-        }
-
-
-        public List<ContainerData> m_Container = new List<ContainerData>();
-
-        public AssetBundle(AssetPreloadData preloadData)
-        {
-            var sourceFile = preloadData.sourceFile;
-            var reader = preloadData.InitReader();
-
-            var m_Name = reader.ReadAlignedString();
-            var size = reader.ReadInt32();
-            for (int i = 0; i < size; i++)
+            var m_PreloadTableSize = reader.ReadInt32();
+            m_PreloadTable = new PPtr<Object>[m_PreloadTableSize];
+            for (int i = 0; i < m_PreloadTableSize; i++)
             {
-                sourceFile.ReadPPtr();
+                m_PreloadTable[i] = new PPtr<Object>(reader);
             }
-            size = reader.ReadInt32();
-            for (int i = 0; i < size; i++)
+
+            var m_ContainerSize = reader.ReadInt32();
+            m_Container = new KeyValuePair<string, AssetInfo>[m_ContainerSize];
+            for (int i = 0; i < m_ContainerSize; i++)
             {
-                var temp = new ContainerData();
-                temp.first = reader.ReadAlignedString();
-                temp.second = new AssetInfo();
-                temp.second.preloadIndex = reader.ReadInt32();
-                temp.second.preloadSize = reader.ReadInt32();
-                temp.second.asset = sourceFile.ReadPPtr();
-                m_Container.Add(temp);
+                m_Container[i] = new KeyValuePair<string, AssetInfo>(reader.ReadAlignedString(), new AssetInfo(reader));
             }
         }
     }

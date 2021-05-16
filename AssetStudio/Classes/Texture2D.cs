@@ -1,95 +1,47 @@
 ﻿using System;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices;
 
 namespace AssetStudio
 {
-    class Texture2D
+    public class StreamingInfo
     {
-        public AssetPreloadData preloadData;
+        public ulong offset;
+        public uint size;
+        public string path;
 
-        public string m_Name;
-        public int m_Width;
-        public int m_Height;
-        public int m_CompleteImageSize;
-        public TextureFormat m_TextureFormat;
-        public bool m_MipMap;
-        public int m_MipCount;
-        public bool m_IsReadable;
-        public bool m_ReadAllowed;
-        public int m_ImageCount;
-        public int m_TextureDimension;
-        //m_TextureSettings
+        public StreamingInfo(ObjectReader reader)
+        {
+            var version = reader.version;
+
+            if (version[0] >= 2020) //2020.1 and up
+            {
+                offset = reader.ReadUInt64();
+            }
+            else
+            {
+                offset = reader.ReadUInt32();
+            }
+            size = reader.ReadUInt32();
+            path = reader.ReadAlignedString();
+        }
+    }
+
+    public class GLTextureSettings
+    {
         public int m_FilterMode;
         public int m_Aniso;
         public float m_MipBias;
         public int m_WrapMode;
-        public int m_LightmapFormat;
-        public int m_ColorSpace;
-        //image dataa
-        public int image_data_size;
-        public byte[] image_data;
-        //m_StreamData
-        public uint offset;
-        public uint size;
-        public string path;
 
-        public Texture2D(AssetPreloadData preloadData, bool readSwitch)
+        public GLTextureSettings(ObjectReader reader)
         {
-            this.preloadData = preloadData;
-            var sourceFile = preloadData.sourceFile;
-            var reader = preloadData.InitReader();
-            var version = sourceFile.version;
+            var version = reader.version;
 
-            m_Name = reader.ReadAlignedString();
-            if (version[0] > 2017 || (version[0] == 2017 && version[1] >= 3))//2017.3 and up
-            {
-                var m_ForcedFallbackFormat = reader.ReadInt32();
-                var m_DownscaleFallback = reader.ReadBoolean();
-                reader.AlignStream(4);
-            }
-            m_Width = reader.ReadInt32();
-            m_Height = reader.ReadInt32();
-            m_CompleteImageSize = reader.ReadInt32();
-            m_TextureFormat = (TextureFormat)reader.ReadInt32();
-
-            if (version[0] < 5 || (version[0] == 5 && version[1] < 2))
-            {
-                m_MipMap = reader.ReadBoolean();
-            }
-            else
-            {
-                m_MipCount = reader.ReadInt32();
-            }
-
-            m_IsReadable = reader.ReadBoolean(); //2.6.0 and up
-            m_ReadAllowed = reader.ReadBoolean(); //3.0.0 - 5.4
-            //m_StreamingMipmaps 2018.2 and up
-            reader.AlignStream(4);
-            if (version[0] > 2018 || (version[0] == 2018 && version[1] >= 2)) //2018.2 and up
-            {
-                var m_StreamingMipmapsPriority = reader.ReadInt32();
-            }
-            else if (preloadData.HasStructMember("m_StreamingMipmapsPriority")) //will fix in some patch version bundle
-            {
-                var m_StreamingMipmapsPriority = reader.ReadInt32();
-            }
-            if (preloadData.HasStructMember("m_StreamingGroupID")) //What the hell is this?
-            {
-                var m_StreamingGroupID = reader.ReadUInt32();
-            }
-            m_ImageCount = reader.ReadInt32();
-            m_TextureDimension = reader.ReadInt32();
-            //m_TextureSettings
             m_FilterMode = reader.ReadInt32();
             m_Aniso = reader.ReadInt32();
             m_MipBias = reader.ReadSingle();
             if (version[0] >= 2017)//2017.x and up
             {
-                int m_WrapU = reader.ReadInt32();
+                m_WrapMode = reader.ReadInt32(); //m_WrapU
                 int m_WrapV = reader.ReadInt32();
                 int m_WrapW = reader.ReadInt32();
             }
@@ -97,59 +49,98 @@ namespace AssetStudio
             {
                 m_WrapMode = reader.ReadInt32();
             }
-            if (version[0] >= 3)
+        }
+    }
+
+    public sealed class Texture2D : Texture
+    {
+        public int m_Width;
+        public int m_Height;
+        public TextureFormat m_TextureFormat;
+        public bool m_MipMap;
+        public int m_MipCount;
+        public GLTextureSettings m_TextureSettings;
+        public ResourceReader image_data;
+        public StreamingInfo m_StreamData;
+
+        public Texture2D(ObjectReader reader) : base(reader)
+        {
+            m_Width = reader.ReadInt32();
+            m_Height = reader.ReadInt32();
+            var m_CompleteImageSize = reader.ReadInt32();
+            if (version[0] >= 2020) //2020.1 and up
             {
-                m_LightmapFormat = reader.ReadInt32();
-                if (version[0] >= 4 || version[1] >= 5)//3.5.0 and up
-                {
-                    m_ColorSpace = reader.ReadInt32();
-                }
+                var m_MipsStripped = reader.ReadInt32();
             }
-
-            image_data_size = reader.ReadInt32();
-
-            if (image_data_size == 0 && ((version[0] == 5 && version[1] >= 3) || version[0] > 5))//5.3.0 and up
+            m_TextureFormat = (TextureFormat)reader.ReadInt32();
+            if (version[0] < 5 || (version[0] == 5 && version[1] < 2)) //5.2 down
             {
-                offset = reader.ReadUInt32();
-                size = reader.ReadUInt32();
-                image_data_size = (int)size;
-                path = reader.ReadAlignedString();
-            }
-
-            if (readSwitch)
-            {
-                if (!string.IsNullOrEmpty(path))
-                {
-                    image_data = ResourcesHelper.GetData(path, sourceFile.filePath, offset, image_data_size);
-                }
-                else
-                {
-                    image_data = reader.ReadBytes(image_data_size);
-                }
+                m_MipMap = reader.ReadBoolean();
             }
             else
             {
-                preloadData.InfoText = $"Width: {m_Width}\nHeight: {m_Height}\nFormat: {m_TextureFormat}";
-
-                switch (m_FilterMode)
-                {
-                    case 0: preloadData.InfoText += "\nFilter Mode: Point "; break;
-                    case 1: preloadData.InfoText += "\nFilter Mode: Bilinear "; break;
-                    case 2: preloadData.InfoText += "\nFilter Mode: Trilinear "; break;
-                }
-
-                preloadData.InfoText += $"\nAnisotropic level: {m_Aniso}\nMip map bias: {m_MipBias}";
-
-                switch (m_WrapMode)
-                {
-                    case 0: preloadData.InfoText += "\nWrap mode: Repeat"; break;
-                    case 1: preloadData.InfoText += "\nWrap mode: Clamp"; break;
-                }
-
-                preloadData.Text = m_Name;
-                if (!string.IsNullOrEmpty(path))
-                    preloadData.fullSize = preloadData.Size + (int)size;
+                m_MipCount = reader.ReadInt32();
             }
+            if (version[0] > 2 || (version[0] == 2 && version[1] >= 6)) //2.6.0 and up
+            {
+                var m_IsReadable = reader.ReadBoolean();
+            }
+            if (version[0] >= 2020) //2020.1 and up
+            {
+                var m_IsPreProcessed = reader.ReadBoolean();
+            }
+            if (version[0] > 2019 || (version[0] == 2019 && version[1] >= 3)) //2019.3 and up
+            {
+                var m_IgnoreMasterTextureLimit = reader.ReadBoolean();
+            }
+            if (version[0] >= 3) //3.0.0 - 5.4
+            {
+                if (version[0] < 5 || (version[0] == 5 && version[1] <= 4))
+                {
+                    var m_ReadAllowed = reader.ReadBoolean();
+                }
+            }
+            if (version[0] > 2018 || (version[0] == 2018 && version[1] >= 2)) //2018.2 and up
+            {
+                var m_StreamingMipmaps = reader.ReadBoolean();
+            }
+            reader.AlignStream();
+            if (version[0] > 2018 || (version[0] == 2018 && version[1] >= 2)) //2018.2 and up
+            {
+                var m_StreamingMipmapsPriority = reader.ReadInt32();
+            }
+            var m_ImageCount = reader.ReadInt32();
+            var m_TextureDimension = reader.ReadInt32();
+            m_TextureSettings = new GLTextureSettings(reader);
+            if (version[0] >= 3) //3.0 and up
+            {
+                var m_LightmapFormat = reader.ReadInt32();
+            }
+            if (version[0] > 3 || (version[0] == 3 && version[1] >= 5)) //3.5.0 and up
+            {
+                var m_ColorSpace = reader.ReadInt32();
+            }
+            if (version[0] > 2020 || (version[0] == 2020 && version[1] >= 2)) //2020.2 and up
+            {
+                var m_PlatformBlob = reader.ReadUInt8Array();
+                reader.AlignStream();
+            }
+            var image_data_size = reader.ReadInt32();
+            if (image_data_size == 0 && ((version[0] == 5 && version[1] >= 3) || version[0] > 5))//5.3.0 and up
+            {
+                m_StreamData = new StreamingInfo(reader);
+            }
+
+            ResourceReader resourceReader;
+            if (!string.IsNullOrEmpty(m_StreamData?.path))
+            {
+                resourceReader = new ResourceReader(m_StreamData.path, assetsFile, m_StreamData.offset, (int)m_StreamData.size);
+            }
+            else
+            {
+                resourceReader = new ResourceReader(reader, reader.BaseStream.Position, image_data_size);
+            }
+            image_data = resourceReader;
         }
     }
 
@@ -212,5 +203,14 @@ namespace AssetStudio
         R8,
         ETC_RGB4Crunched,
         ETC2_RGBA8Crunched,
+        ASTC_HDR_4x4,
+        ASTC_HDR_5x5,
+        ASTC_HDR_6x6,
+        ASTC_HDR_8x8,
+        ASTC_HDR_10x10,
+        ASTC_HDR_12x12,
+        RG32,
+        RGB48,
+        RGBA64
     }
 }

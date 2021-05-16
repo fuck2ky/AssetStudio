@@ -1,122 +1,115 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+﻿using System.Collections.Generic;
 
 namespace AssetStudio
 {
-    class TexEnv
+    public class UnityTexEnv
     {
-        public string name;
-        public PPtr m_Texture;
-        public float[] m_Scale;
-        public float[] m_Offset;
-    }
+        public PPtr<Texture> m_Texture;
+        public Vector2 m_Scale;
+        public Vector2 m_Offset;
 
-    class strFloatPair
-    {
-        public string first;
-        public float second;
-    }
-
-    class strColorPair
-    {
-        public string first;
-        public float[] second;
-    }
-
-    class Material
-    {
-        public string m_Name;
-        public PPtr m_Shader;
-        public string[] m_ShaderKeywords;
-        public int m_CustomRenderQueue;
-        public TexEnv[] m_TexEnvs;
-        public strFloatPair[] m_Floats;
-        public strColorPair[] m_Colors;
-
-        public Material(AssetPreloadData preloadData)
+        public UnityTexEnv(ObjectReader reader)
         {
-            var sourceFile = preloadData.sourceFile;
-            var reader = preloadData.InitReader();
+            m_Texture = new PPtr<Texture>(reader);
+            m_Scale = reader.ReadVector2();
+            m_Offset = reader.ReadVector2();
+        }
+    }
 
-            m_Name = reader.ReadAlignedString();
-            m_Shader = sourceFile.ReadPPtr();
+    public class UnityPropertySheet
+    {
+        public KeyValuePair<string, UnityTexEnv>[] m_TexEnvs;
+        public KeyValuePair<string, int>[] m_Ints;
+        public KeyValuePair<string, float>[] m_Floats;
+        public KeyValuePair<string, Color>[] m_Colors;
 
-            if (sourceFile.version[0] == 4 && (sourceFile.version[1] >= 2 || (sourceFile.version[1] == 1 && sourceFile.buildType[0] != "a")))
+        public UnityPropertySheet(ObjectReader reader)
+        {
+            var version = reader.version;
+
+            int m_TexEnvsSize = reader.ReadInt32();
+            m_TexEnvs = new KeyValuePair<string, UnityTexEnv>[m_TexEnvsSize];
+            for (int i = 0; i < m_TexEnvsSize; i++)
             {
-                m_ShaderKeywords = new string[reader.ReadInt32()];
-                for (int i = 0; i < m_ShaderKeywords.Length; i++)
+                m_TexEnvs[i] = new KeyValuePair<string, UnityTexEnv>(reader.ReadAlignedString(), new UnityTexEnv(reader));
+            }
+
+            if (version[0] >= 2021) //2021.1 and up
+            {
+                int m_IntsSize = reader.ReadInt32();
+                m_Ints = new KeyValuePair<string, int>[m_IntsSize];
+                for (int i = 0; i < m_IntsSize; i++)
                 {
-                    m_ShaderKeywords[i] = reader.ReadAlignedString();
+                    m_Ints[i] = new KeyValuePair<string, int>(reader.ReadAlignedString(), reader.ReadInt32());
                 }
             }
-            else if (sourceFile.version[0] >= 5)//5.0 and up
+
+            int m_FloatsSize = reader.ReadInt32();
+            m_Floats = new KeyValuePair<string, float>[m_FloatsSize];
+            for (int i = 0; i < m_FloatsSize; i++)
             {
-                m_ShaderKeywords = new[] { reader.ReadAlignedString() };
-                uint m_LightmapFlags = reader.ReadUInt32();
-                if (sourceFile.version[0] == 5 && sourceFile.version[1] >= 6 || sourceFile.version[0] > 5)//5.6.0 and up
+                m_Floats[i] = new KeyValuePair<string, float>(reader.ReadAlignedString(), reader.ReadSingle());
+            }
+
+            int m_ColorsSize = reader.ReadInt32();
+            m_Colors = new KeyValuePair<string, Color>[m_ColorsSize];
+            for (int i = 0; i < m_ColorsSize; i++)
+            {
+                m_Colors[i] = new KeyValuePair<string, Color>(reader.ReadAlignedString(), reader.ReadColor4());
+            }
+        }
+    }
+
+    public sealed class Material : NamedObject
+    {
+        public PPtr<Shader> m_Shader;
+        public UnityPropertySheet m_SavedProperties;
+
+        public Material(ObjectReader reader) : base(reader)
+        {
+            m_Shader = new PPtr<Shader>(reader);
+
+            if (version[0] == 4 && version[1] >= 1) //4.x
+            {
+                var m_ShaderKeywords = reader.ReadStringArray();
+            }
+
+            if (version[0] >= 5) //5.0 and up
+            {
+                var m_ShaderKeywords = reader.ReadAlignedString();
+                var m_LightmapFlags = reader.ReadUInt32();
+            }
+
+            if (version[0] > 5 || (version[0] == 5 && version[1] >= 6)) //5.6 and up
+            {
+                var m_EnableInstancingVariants = reader.ReadBoolean();
+                //var m_DoubleSidedGI = a_Stream.ReadBoolean(); //2017 and up
+                reader.AlignStream();
+            }
+
+            if (version[0] > 4 || (version[0] == 4 && version[1] >= 3)) //4.3 and up
+            {
+                var m_CustomRenderQueue = reader.ReadInt32();
+            }
+
+            if (version[0] > 5 || (version[0] == 5 && version[1] >= 1)) //5.1 and up
+            {
+                var stringTagMapSize = reader.ReadInt32();
+                for (int i = 0; i < stringTagMapSize; i++)
                 {
-                    var m_EnableInstancingVariants = reader.ReadBoolean();
-                    //var m_DoubleSidedGI = a_Stream.ReadBoolean();//2017.x
-                    reader.AlignStream(4);
+                    var first = reader.ReadAlignedString();
+                    var second = reader.ReadAlignedString();
                 }
             }
 
-            if (sourceFile.version[0] > 4 || sourceFile.version[0] == 4 && sourceFile.version[1] >= 3) { m_CustomRenderQueue = reader.ReadInt32(); }
-
-            if (sourceFile.version[0] == 5 && sourceFile.version[1] >= 1 || sourceFile.version[0] > 5)//5.1 and up
+            if (version[0] > 5 || (version[0] == 5 && version[1] >= 6)) //5.6 and up
             {
-                string[][] stringTagMap = new string[reader.ReadInt32()][];
-                for (int i = 0; i < stringTagMap.Length; i++)
-                {
-                    stringTagMap[i] = new[] { reader.ReadAlignedString(), reader.ReadAlignedString() };
-                }
-            }
-            //disabledShaderPasses
-            if ((sourceFile.version[0] == 5 && sourceFile.version[1] >= 6) || sourceFile.version[0] > 5)//5.6.0 and up
-            {
-                var size = reader.ReadInt32();
-                for (int i = 0; i < size; i++)
-                {
-                    reader.ReadAlignedString();
-                }
-            }
-            //m_SavedProperties
-            m_TexEnvs = new TexEnv[reader.ReadInt32()];
-            for (int i = 0; i < m_TexEnvs.Length; i++)
-            {
-                TexEnv m_TexEnv = new TexEnv()
-                {
-                    name = reader.ReadAlignedString(),
-                    m_Texture = sourceFile.ReadPPtr(),
-                    m_Scale = new[] { reader.ReadSingle(), reader.ReadSingle() },
-                    m_Offset = new[] { reader.ReadSingle(), reader.ReadSingle() }
-                };
-                m_TexEnvs[i] = m_TexEnv;
+                var disabledShaderPasses = reader.ReadStringArray();
             }
 
-            m_Floats = new strFloatPair[reader.ReadInt32()];
-            for (int i = 0; i < m_Floats.Length; i++)
-            {
-                strFloatPair m_Float = new strFloatPair()
-                {
-                    first = reader.ReadAlignedString(),
-                    second = reader.ReadSingle()
-                };
-                m_Floats[i] = m_Float;
-            }
+            m_SavedProperties = new UnityPropertySheet(reader);
 
-            m_Colors = new strColorPair[reader.ReadInt32()];
-            for (int i = 0; i < m_Colors.Length; i++)
-            {
-                strColorPair m_Color = new strColorPair()
-                {
-                    first = reader.ReadAlignedString(),
-                    second = new[] { reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle() }
-                };
-                m_Colors[i] = m_Color;
-            }
+            //vector m_BuildTextureStacks 2020 and up
         }
     }
 }
